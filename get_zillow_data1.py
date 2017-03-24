@@ -3,9 +3,10 @@ from pyzillow.pyzillow import ZillowWrapper, GetDeepSearchResults
 import csv
 import requests
 import urllib
+import pandas as pd
 import os
 from sklearn.decomposition import PCA
-import numpy
+import numpy as np
 from matplotlib import pyplot as plt
 import cv2
 
@@ -82,116 +83,85 @@ def GetStreet(Address, SaveLoc):
 
 def get_Living_Index(res):
     original_features = []
+    last_sold_price = res['last_sold_price']
+    property_size = res['property_size']
+    home_size = res['home_size']
+
+    last_sold_price = last_sold_price.fillna(np.mean(last_sold_price))
+    property_size = property_size.fillna(np.round(np.mean(property_size), 0))
+    home_size = home_size.fillna(np.round(np.mean(home_size), 0))
+
     for i in range(0, len(res)):
-        try:
-            tax_value = float(res[i].tax_value)
-        except:
-            tax_value = 500000.0
-
-        try:
-            year_built = float(res[i].year_built)
-        except:
-            year_built = 1990.0
-
-        try:
-            property_size = float(res[i].property_size)
-        except:
-            property_size = 1000.0
-
-        try:
-            home_size = float(res[i].home_size)
-        except:
-            home_size = 1000.0
-
-        try:
-            bathrooms = float(res[i].bathrooms)
-        except:
-            bathrooms = 2.0
-
-        try:
-            bedrooms = float(res[i].bedrooms)
-        except:
-            bedrooms = 3.0
-
-        try:
-            zestimate_amount = float(res[i].zestimate_amount)
-        except:
-            zestimate_amount = 500000.0
-
-        try:
-            last_sold_price = float(res[i].last_sold_price)
-        except:
-            last_sold_price = 500000.0
-
         # original_features.append([tax_value, property_size / home_size, bathrooms, bedrooms])  # year_built,property_size,zestimate_amount
-        original_features.append([property_size / home_size,
-                              last_sold_price])  # tax_value,year_built,property_size, bathrooms, bedrooms, zestimate_amount, last_sold_price
+        original_features.append([property_size[i] / home_size[i],
+                              last_sold_price[i]])  # tax_value,year_built,property_size, bathrooms, bedrooms, zestimate_amount, last_sold_price
 
-    arr_orig_features = numpy.array(original_features)
+    arr_orig_features = np.array(original_features)
     for i in arr_orig_features:
-        if (i[1] >= 600000):
-            i[1] = 600000
+        if (i[1] >= 550000):
+            i[1] = 550000
 
     score_pca = PCA(n_components=1)
     score = score_pca.fit_transform(arr_orig_features)
 
     finalscore = []
+    maxscore = max(score)
+    minscore = min(score)
     for i in score:
-        val = 0 + ((i[0] - min(score)) * 10) / (max(score) - min(score))
-        val = numpy.round(val)
+        val = 0 + ((i[0] - minscore) * 10) / (maxscore - minscore)
+        val = np.round(val)
         # val = int(val)
-        finalscore.append(int(numpy.asscalar(val)))
+        finalscore.append(int(np.asscalar(val)))
     return finalscore
 
-
 def get_colhist(filenames):
-    #features = []
+    features = []
     colhist = []
-    for names in filenames:
-        image = cv2.imread(names)
+    for i in range(0, len(filenames)):
+        image = cv2.imread(filenames[i])
         chans = cv2.split(image)
         #colhist = []
         for chan in chans:
             hist = cv2.calcHist([chan], [0], None, [32], [0, 256])
-            hist = cv2.normalize(numpy.array(hist), dst=cv2.NORM_MINMAX)
+            hist = cv2.normalize(np.array(hist), dst=cv2.NORM_MINMAX)
             colhist.extend(hist)
-        #features.append(numpy.array(colhist).flatten())
-    features = numpy.array(numpy.array(colhist).flatten())
-    features = features.reshape((len(filenames) - 2, 96))
+        #features.append(np.array(colhist).flatten())
+    features = np.array(np.array(colhist).flatten())
+    features = features.reshape((len(filenames), 96))
     return features
 
 
 def get_imgrad(filenames):
-    #features = []
-    gradhist = []
-    for names in filenames:
-        image = cv2.imread(names)
+    features = []
+    # gradhist = []
+    for i in range(0, len(filenames)):
+        image = cv2.imread(filenames[i])
         chans = cv2.split(image)
-        # gradhist = []
+        gradhist = []
         for chan in chans:
             laplace = cv2.Laplacian(chan, cv2.CV_32F)
             #sobelx = cv2.Sobel(chan, cv2.CV_32F, 1, 0, ksize=5)
             #sobely = cv2.Sobel(chan, cv2.CV_32F, 0, 1, ksize=5)
             hist = cv2.calcHist([laplace], [0], None, [32], [0, 256]) #, sobely, laplace,
-            hist = cv2.normalize(numpy.array(hist), dst=cv2.NORM_MINMAX)
+            hist = cv2.normalize(np.array(hist), dst=cv2.NORM_MINMAX)
             gradhist.extend(hist)
-        #features.append(numpy.array(gradhist).flatten())
-    feature = numpy.array(numpy.array(gradhist).flatten())
-    feature = feature.reshape((len(filenames)-2, 96))
+        features.append(np.array(gradhist).flatten())
+    #feature = np.array(np.array(gradhist).flatten())
+    #feature = feature.reshape((len(filenames), 96))
     return feature
 
 
 def gradient_descent(alpha, x, y, numiter, epsilon):
-    theta = numpy.zeros(len(x[0]))
+    theta = np.zeros(len(x[0]))
     m = len(y)
     arrcost = []
     for _ in range(1,numiter):
-        pred = numpy.dot(x, theta)
-        temp = numpy.dot((pred - y), x)
+        pred = np.dot(x, theta)
+        temp = np.dot((pred - y), x)
         theta = theta - ((alpha / m) * temp)
-        val = numpy.sum((numpy.dot(x,theta) - y) / m)
-        arrcost.append(numpy.abs(val))
-        if(numpy.abs(val) < epsilon):
+        val = np.sum((np.dot(x,theta) - y) / m)
+        arrcost.append(np.abs(val))
+        if(np.abs(val) < epsilon):
             return {'cost': arrcost, 'theta': theta }
     return {'cost': arrcost, 'theta': theta}
 
@@ -216,13 +186,13 @@ zip_all = data['POSTCODE']
 for i in range(0, len(data['NUMBER'])):
     address_all.append(data['NUMBER'][i] + ", " + data['STREET'][i] + " " + data['UNIT'][i])
 
-# rand_idx = numpy.random.permutation(len(zip_all))
+# rand_idx = np.random.permutation(len(zip_all))
 
 # random permutations saved in CSV for reuse in future : steps of 2000
-numpy.savetxt("randperm.csv", rand_idx, delimiter= ",")
+np.savetxt("randperm.csv", rand_idx, delimiter= ",")
 
 
-rand_idx = numpy.genfromtxt('randperm.csv',delimiter = ',')
+rand_idx = np.genfromtxt('randperm.csv',delimiter = ',')
 
 address = []
 zip = []
@@ -241,31 +211,31 @@ res = get_zillow_data(address, zip) # 721, 1487, 2282, 3323, 4165, 4960, 5656
 # pickle.dump(res, f, 2)
 # f.close()
 #
-f = open('result.pickle1234', 'rb')
-res = pickle.load(f)
-f.close()
+# f = open('result.pickle1234', 'rb')
+# res = pickle.load(f)
+# f.close()
 
-
+res = pd.read_csv('resultset_12000')
 living_index = get_Living_Index(res)
 
 filenames = []
-for i in range(0,len(res)+2):
+for i in range(0,len(res)):
     name = "img/file"+str(i)+".png"
     filenames.append(name)
 feature = get_colhist(filenames)
 
-#y = numpy.genfromtxt('pcascores.csv',delimiter = ',')
+#y = np.genfromtxt('pcascores.csv',delimiter = ',')
 y = living_index
-x = numpy.column_stack((numpy.ones(len(feature)), feature))
+x = np.column_stack((np.ones(len(feature)), feature))
 
-trainx = x[0:1800]
-testx = x[1800:]
-trainy = y[0:1800]
-testy = y[1800:]
+trainx = x[0:5000]
+testx = x[5000:]
+trainy = y[0:5000]
+testy = y[5000:]
 gd_res = gradient_descent(0.001, trainx, trainy, 1000000, 0.00001)
 
-res = numpy.dot(testx, gd_res['theta'])
-(len(res[numpy.round(res) == testy]) / len(testy)) * 100
+res = np.dot(testx, gd_res['theta'])
+(len(res[np.round(res) == testy]) / len(testy)) * 100
 # image = cv2.imread(r"img\file370.png")
 # chans = cv2.split(image)
 # colors = ("b", "g", "r")
@@ -285,7 +255,7 @@ res = numpy.dot(testx, gd_res['theta'])
 #     # plot the histogram
 #     plt.plot(hist, color=color)
 #     plt.xlim([0, 256])
-# features.extend(numpy.array(colhist).flatten())
+# features.extend(np.array(colhist).flatten())
 
 
 import pandas as pd
@@ -339,3 +309,68 @@ for res in temp_res:
                                 'zestimate_valuationRange_low':res.zestimate_valuationRange_low,
                                 'zestimate_percentile':res.zestimate_percentile}, index = [j])
     dfresults = dfresults.append(dfresultappend)
+
+
+
+# def get_Living_Index(res):
+#     original_features = []
+#     for i in range(0, len(res)):
+#         try:
+#             tax_value = float(res[i].tax_value)
+#         except:
+#             tax_value = 500000.0
+#
+#         try:
+#             year_built = float(res[i].year_built)
+#         except:
+#             year_built = 1990.0
+#
+#         try:
+#             property_size = float(res[i].property_size)
+#         except:
+#             property_size = 1000.0
+#
+#         try:
+#             home_size = float(res[i].home_size)
+#         except:
+#             home_size = 1000.0
+#
+#         try:
+#             bathrooms = float(res[i].bathrooms)
+#         except:
+#             bathrooms = 2.0
+#
+#         try:
+#             bedrooms = float(res[i].bedrooms)
+#         except:
+#             bedrooms = 3.0
+#
+#         try:
+#             zestimate_amount = float(res[i].zestimate_amount)
+#         except:
+#             zestimate_amount = 500000.0
+#
+#         try:
+#             last_sold_price = float(res[i].last_sold_price)
+#         except:
+#             last_sold_price = 500000.0
+#
+#         # original_features.append([tax_value, property_size / home_size, bathrooms, bedrooms])  # year_built,property_size,zestimate_amount
+#         original_features.append([property_size / home_size,
+#                               last_sold_price])  # tax_value,year_built,property_size, bathrooms, bedrooms, zestimate_amount, last_sold_price
+#
+#     arr_orig_features = np.array(original_features)
+#     for i in arr_orig_features:
+#         if (i[1] >= 600000):
+#             i[1] = 600000
+#
+#     score_pca = PCA(n_components=1)
+#     score = score_pca.fit_transform(arr_orig_features)
+#
+#     finalscore = []
+#     for i in score:
+#         val = 0 + ((i[0] - min(score)) * 10) / (max(score) - min(score))
+#         val = np.round(val)
+#         # val = int(val)
+#         finalscore.append(int(np.asscalar(val)))
+#     return finalscore

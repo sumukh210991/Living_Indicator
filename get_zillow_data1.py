@@ -6,6 +6,10 @@ import urllib
 import pandas as pd
 import os
 from sklearn.decomposition import PCA
+from sklearn import tree
+from sklearn import svm
+from sklearn.neural_network import MLPClassifier
+from sklearn.naive_bayes import GaussianNB
 import numpy as np
 from matplotlib import pyplot as plt
 import cv2
@@ -133,11 +137,11 @@ def get_colhist(filenames):
 
 def get_imgrad(filenames):
     features = []
-    # gradhist = []
+    gradhist = []
     for i in range(0, len(filenames)):
         image = cv2.imread(filenames[i])
         chans = cv2.split(image)
-        gradhist = []
+        # gradhist = []
         for chan in chans:
             laplace = cv2.Laplacian(chan, cv2.CV_32F)
             #sobelx = cv2.Sobel(chan, cv2.CV_32F, 1, 0, ksize=5)
@@ -145,25 +149,72 @@ def get_imgrad(filenames):
             hist = cv2.calcHist([laplace], [0], None, [32], [0, 256]) #, sobely, laplace,
             hist = cv2.normalize(np.array(hist), dst=cv2.NORM_MINMAX)
             gradhist.extend(hist)
-        features.append(np.array(gradhist).flatten())
-    #feature = np.array(np.array(gradhist).flatten())
-    #feature = feature.reshape((len(filenames), 96))
+        #features.append(np.array(gradhist).flatten())
+    feature = np.array(np.array(gradhist).flatten())
+    feature = feature.reshape((len(filenames), 96))
     return feature
 
 
-def gradient_descent(alpha, x, y, numiter, epsilon):
-    theta = np.zeros(len(x[0]))
-    m = len(y)
+def gradient_descent(alpha, trainx, trainy, testx, testy, numiter, epsilon):
+    theta = np.zeros(len(trainx[0]))
+    m = len(trainy)
     arrcost = []
     for _ in range(1,numiter):
-        pred = np.dot(x, theta)
-        temp = np.dot((pred - y), x)
+        pred = np.dot(trainx, theta)
+        temp = np.dot((pred - trainy), trainx)
         theta = theta - ((alpha / m) * temp)
-        val = np.sum((np.dot(x,theta) - y) / m)
+        val = np.sum((np.dot(trainx,theta) - trainy) / m)
         arrcost.append(np.abs(val))
         if(np.abs(val) < epsilon):
-            return {'cost': arrcost, 'theta': theta }
-    return {'cost': arrcost, 'theta': theta}
+            break
+            #return {'cost': arrcost, 'theta': theta }
+
+    pred = np.dot(testx, theta)
+    error = np.true_divide(len(pred[np.round(res) == testy]), len(testy)) * 100
+    #return {'cost': arrcost, 'theta': theta}
+    return error
+
+
+def decision_tree(trainx, trainy, testx, testy):
+    features = 'auto'
+    depth = 5
+    model = tree.DecisionTreeClassifier(max_features = features, max_depth= depth)
+    model = model.fit(trainx, trainy)
+    res = model.predict(testx)
+    accuracy = np.true_divide(len(res[np.round(res) == testy]), len(testy)) * 100
+    return accuracy
+
+
+def Support_vector_class(trainx, trainy, testx, testy):
+    model = svm.SVC(decision_function_shape='ovo')
+    model.fit(trainx, trainy)
+    res = model.predict(testx)
+    accuracy = np.true_divide(len(res[np.round(res) == testy]), len(testy)) * 100
+    return accuracy
+
+
+def Linear_SVC(trainx, trainy, testx, testy):
+    model = svm.LinearSVC()
+    model.fit(trainx, trainy)
+    res = model.predict(testx)
+    accuracy = np.true_divide(len(res[np.round(res) == testy]), len(testy)) * 100
+    return accuracy
+
+
+def neural_net(trainx, trainy, testx, testy):
+    model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(len(trainx[0]),2), random_state=1)
+    model.fit(trainx, trainy)
+    res = model.predict(testx)
+    accuracy = np.true_divide(len(res[np.round(res) == testy]), len(testy)) * 100
+    return accuracy
+
+
+def naive_bayes(trainx, trainy, testx, testy):
+    model = GaussianNB()
+    model.fit(trainx, trainy)
+    res = model.predict(testx)
+    accuracy = np.true_divide(len(res[np.round(res) == testy]), len(testy)) * 100
+    return accuracy
 
 
 # with open('LA.csv', 'rU') as infile:
@@ -222,20 +273,35 @@ filenames = []
 for i in range(0,len(res)):
     name = "img/file"+str(i)+".png"
     filenames.append(name)
-feature = get_colhist(filenames)
+
+
+feature = get_imgrad(filenames)
 
 #y = np.genfromtxt('pcascores.csv',delimiter = ',')
 y = living_index
-x = np.column_stack((np.ones(len(feature)), feature))
+x = feature
+# x = np.column_stack((np.ones(len(feature)), feature))
 
-trainx = x[0:5000]
-testx = x[5000:]
-trainy = y[0:5000]
-testy = y[5000:]
-gd_res = gradient_descent(0.001, trainx, trainy, 1000000, 0.00001)
+trainx = x[0:4523]
+testx = x[4523:]
+trainy = y[0:4523]
+testy = y[4523:]
 
-res = np.dot(testx, gd_res['theta'])
-(len(res[np.round(res) == testy]) / len(testy)) * 100
+gd_accuracy = gradient_descent(0.001, trainx, trainy, testx, testy, 1000000, 0.001)
+
+dTree_accuracy = decision_tree(trainx, trainy, testx, testy)
+
+svc_accuracy = Support_vector_class(trainx, trainy, testx, testy)
+
+lin_svc_accuracy = Linear_SVC(trainx, trainy, testx, testy)
+
+nn_accuarcy = neural_net(trainx, trainy, testx, testy)
+
+naive_bayes_accuarcy = naive_bayes(trainx, trainy, testx, testy)
+
+# res = np.dot(testx, gd_res['theta'])
+# np.true_divide(len(res[np.round(res) == testy]), len(testy)) * 100
+
 # image = cv2.imread(r"img\file370.png")
 # chans = cv2.split(image)
 # colors = ("b", "g", "r")

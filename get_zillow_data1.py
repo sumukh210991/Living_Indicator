@@ -86,36 +86,39 @@ def GetStreet(Address, SaveLoc):
 
 
 def get_Living_Index(res):
-    original_features = []
-    last_sold_price = res['last_sold_price']
+    zestimate = res['zestimate_amount']
     property_size = res['property_size']
     home_size = res['home_size']
 
-    last_sold_price = last_sold_price.fillna(np.mean(last_sold_price))
-    property_size = property_size.fillna(np.round(np.mean(property_size), 0))
-    home_size = home_size.fillna(np.round(np.mean(home_size), 0))
+    zestimate = zestimate.fillna(np.median(zestimate[np.isnan(zestimate) == False]))
+    property_size = property_size.fillna(np.median(property_size[np.isnan(property_size) == False]))
+    home_size = home_size.fillna(np.median(home_size[np.isnan(home_size) == False]))
 
-    for i in range(0, len(res)):
-        # original_features.append([tax_value, property_size / home_size, bathrooms, bedrooms])  # year_built,property_size,zestimate_amount
-        original_features.append([property_size[i] / home_size[i],
-                              last_sold_price[i]])  # tax_value,year_built,property_size, bathrooms, bedrooms, zestimate_amount, last_sold_price
+    zestimate = np.array(zestimate)
+    property_size = np.array(property_size)
+    home_size = np.array(home_size)
+
+    builtin_ratio = property_size / home_size
+
+
+    # Normalizing zestimate and builtin_ratio for PCA
+    zestimate1 = np.array([0 + ((i - min(zestimate)) * 1) / (max(zestimate) - min(zestimate)) for i in zestimate])
+    builtin_ratio1 = np.array(
+        [0 + ((i - min(builtin_ratio)) * 1) / (max(builtin_ratio) - min(builtin_ratio)) for i in builtin_ratio])
+
+    original_features = np.vstack((zestimate1, builtin_ratio1)).T
 
     arr_orig_features = np.array(original_features)
-    for i in arr_orig_features:
-        if (i[1] >= 550000):
-            i[1] = 550000
 
     score_pca = PCA(n_components=1)
     score = score_pca.fit_transform(arr_orig_features)
 
-    finalscore = []
-    maxscore = max(score)
-    minscore = min(score)
-    for i in score:
-        val = 0 + ((i[0] - minscore) * 10) / (maxscore - minscore)
-        val = np.round(val)
-        # val = int(val)
-        finalscore.append(int(np.asscalar(val)))
+    for i in range(0, len(score)):
+        if (score[i] > 0.054): # threshold for zillow_id = 1000000.0, property_size[i] / home_size[i] = 18
+            score[i] = 0.054
+
+    finalscore = np.array([0 + ((i - min(score)) * 10) / (max(score) - min(score)) for i in score])
+
     return finalscore
 
 def get_colhist(filenames):
@@ -126,12 +129,12 @@ def get_colhist(filenames):
         chans = cv2.split(image)
         #colhist = []
         for chan in chans:
-            hist = cv2.calcHist([chan], [0], None, [32], [0, 256])
+            hist = cv2.calcHist([chan], [0], None, [16], [0, 256])
             hist = cv2.normalize(np.array(hist), dst=cv2.NORM_MINMAX)
             colhist.extend(hist)
         #features.append(np.array(colhist).flatten())
     features = np.array(np.array(colhist).flatten())
-    features = features.reshape((len(filenames), 96))
+    features = features.reshape((len(filenames), 48))
     return features
 
 
@@ -153,6 +156,34 @@ def get_imgrad(filenames):
     feature = np.array(np.array(gradhist).flatten())
     feature = feature.reshape((len(filenames), 96))
     return feature
+
+
+
+'''def get_segmented_color_hist(img):
+    hist_color_car = np.empty(0)
+    count = 0
+    for k in range(0,3):
+        hist_color_car_chan = np.zeros(16)
+        for i in range (0,img.shape[0]):
+            for j in range(0, img.shape[1]):
+                if(img[i,j,k] == 0):
+                    count += 1
+                    continue
+                else:
+                    hist_color_car_chan[int(img[i,j,k] // 16) - 1] += 1
+        hist_color_car = np.append(hist_color_car , hist_color_car_chan / sum(hist_color_car_chan))
+    return hist_color_car '''
+
+def get_segmented_color_hist(img, mask):
+    colhist = np.empty(0)
+    #image = cv2.imread(img)
+    chans = cv2.split(img)
+    for chan in chans:
+        hist = cv2.calcHist([chan], [0], mask, [16], [0, 256])
+        hist = cv2.normalize(np.array(hist), dst=cv2.NORM_MINMAX)
+        colhist = np.append(colhist, hist)
+    return colhist
+
 
 
 def gradient_descent(alpha, trainx, trainy, testx, testy, numiter, epsilon):
@@ -202,7 +233,7 @@ def Linear_SVC(trainx, trainy, testx, testy):
 
 
 def neural_net(trainx, trainy, testx, testy):
-    model = MLPClassifier(solver='lbfgs', alpha=1e-5, hidden_layer_sizes=(len(trainx[0]),2), random_state=1)
+    model = MLPClassifier(activation='tanh', solver ='lbfgs', alpha=1e-5, hidden_layer_sizes=(len(trainx[0]),2), random_state=1)
     model.fit(trainx, trainy)
     res = model.predict(testx)
     accuracy = np.true_divide(len(res[np.round(res) == testy]), len(testy)) * 100
@@ -274,6 +305,12 @@ for i in range(0,len(res)):
     name = "img/file"+str(i)+".png"
     filenames.append(name)
 
+
+
+seg_feat_house = np.loadtxt("/home/student/Sumukh/Living_Indicator/feat_house.csv", delimiter = ',')
+seg_feat_road = np.loadtxt("/home/student/Sumukh/Living_Indicator/feat_road.csv", delimiter = ',')
+seg_feat_tree = np.loadtxt("/home/student/Sumukh/Living_Indicator/feat_tree.csv", delimiter = ',')
+seg_feat_terrain = np.loadtxt("/home/student/Sumukh/Living_Indicator/feat_terrain.csv", delimiter = ',')
 
 feature = get_imgrad(filenames)
 
@@ -377,6 +414,142 @@ for res in temp_res:
     dfresults = dfresults.append(dfresultappend)
 
 
+    #############################################################################################################
+    # Segmented image analysis
+    #############################################################################################################
+
+seg_files_house = ["/home/student/Sumukh/Results/House/test_house"+ (str(i)) + ".png" for i in range(0,5654)]
+seg_files_road = ["/home/student/Sumukh/Results/Road/test_road"+ (str(i)) + ".png" for i in range(0,5654)]
+seg_files_tree = ["/home/student/Sumukh/Results/Trees/test_tree"+ (str(i)) + ".png" for i in range(0,5654)]
+seg_files_terrain = ["/home/student/Sumukh/Results/Terrain/test_terrain"+ (str(i)) + ".png" for i in range(0,5654)]
+orig_files = ["/home/student/Sumukh/Living_Indicator/img/file" + str(i) + ".png" for i in range(0,5654)]
+
+
+seg_feat_house = seg_feat_tree = seg_feat_terrain = seg_feat_road = np.empty(0)
+
+for i in range(0, len(orig_files)):
+    house = cv2.imread(seg_files_house[i])
+    road = cv2.imread(seg_files_road[i])
+    tree = cv2.imread(seg_files_tree[i])
+    terrain = cv2.imread(seg_files_terrain[i])
+
+    img1 = cv2.imread(orig_files[i])
+
+    pts1 = np.float32([[144, 60], [144, 425], [513, 60], [513, 425]])
+    pts2 = np.float32([[0, 0], [0, 640], [640, 0], [640, 640]])
+
+    M = cv2.getPerspectiveTransform(pts1, pts2)
+
+    house = cv2.warpPerspective(house, M, (640, 640))
+    road = cv2.warpPerspective(road, M, (640, 640))
+    tree = cv2.warpPerspective(tree, M, (640, 640))
+    terrain = cv2.warpPerspective(terrain, M, (640, 640))
+
+    house_seg = cv2.cvtColor(house, cv2.COLOR_BGR2GRAY)
+    road_seg = cv2.cvtColor(road, cv2.COLOR_BGR2GRAY)
+    tree_seg = cv2.cvtColor(tree, cv2.COLOR_BGR2GRAY)
+    terrain_seg = cv2.cvtColor(terrain, cv2.COLOR_BGR2GRAY)
+
+    house_ret, house_mask = cv2.threshold(house_seg, 30, 255, cv2.THRESH_BINARY)
+    road_ret, road_mask = cv2.threshold(road_seg, 30, 255, cv2.THRESH_BINARY)
+    tree_ret, tree_mask = cv2.threshold(tree_seg, 30, 255, cv2.THRESH_BINARY)
+    terrain_ret, terrain_mask = cv2.threshold(terrain_seg, 30, 255, cv2.THRESH_BINARY)
+
+    #house_img_bg = cv2.bitwise_and(img1, img1, mask=house_mask)
+    #road_img_bg = cv2.bitwise_and(img1, img1, mask=road_mask)
+    #tree_img_bg = cv2.bitwise_and(img1, img1, mask=tree_mask)
+    #terrain_img_bg = cv2.bitwise_and(img1, img1, mask=terrain_mask)
+
+    if(i == 0):
+        seg_feat_house = get_segmented_color_hist(img1, house_mask)
+        seg_feat_road = get_segmented_color_hist(img1, road_mask)
+        seg_feat_tree = get_segmented_color_hist(img1, tree_mask)
+        seg_feat_terrain = get_segmented_color_hist(img1, terrain_mask)
+    else:
+        seg_feat_house = np.vstack((seg_feat_house, get_segmented_color_hist(img1, house_mask)))
+        seg_feat_road = np.vstack((seg_feat_road, get_segmented_color_hist(img1, road_mask)))
+        seg_feat_tree = np.vstack((seg_feat_tree, get_segmented_color_hist(img1, tree_mask)))
+        seg_feat_terrain = np.vstack((seg_feat_terrain, get_segmented_color_hist(img1, terrain_mask)))
+
+
+
+# np.savetxt("/home/student/Sumukh/Living_Indicator/feat_house.csv",seg_feat_house, delimiter = ',', newline = '\n')
+# seg_feat_house = np.loadtxt("/home/student/Sumukh/Living_Indicator/feat_house.csv", delimiter = ',')
+
+print(seg_feat_house.shape)
+
+
+
+
+    ##############################################################################################################
+    #    code for saving segmented images (car, house, road, tree, terrain etc)
+    ##############################################################################################################
+
+    import numpy as np
+    import cv2
+    import sys
+
+    caffe_root = '/home/student/Documents/PSPNet'  # this file should be run from {caffe_root}/examples (otherwise change this line)
+    sys.path.insert(0, caffe_root + 'python/')
+
+    import caffe
+
+
+    import matplotlib
+    import matplotlib.pyplot as plt
+    matplotlib.use('Agg')
+
+    # caffe.set_mode_cpu()
+    model_def = '/home/cv/Sumukh/PSPNet/evaluation/prototxt/pspnet101_cityscapes_713.prototxt'
+    model_weights = '/home/cv/Sumukh/PSPNet/caffemodel/pspnet101_cityscapes.caffemodel'
+
+    net = caffe.Net(model_def,  # defines the structure of the model
+                    model_weights,  # contains the trained weights
+                    caffe.TEST)  # use test mode (e.g., don't perform dropout)
+
+    mu = np.load('/home/cv/Sumukh/PSPNet/python/caffe/imagenet/ilsvrc_2012_mean.npy')
+    # mu = np.load(caffe_root + 'python/caffe/imagenet/ilsvrc_2012_mean.npy')
+    mu = mu.mean(1).mean(1)  # average over pixels to obtain the mean (BGR) pixel values
+
+    transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
+
+    transformer.set_transpose('data', (2, 0, 1))  # move image channels to outermost dimension
+    transformer.set_mean('data', mu)  # subtract the dataset-mean value in each channel
+    transformer.set_raw_scale('data', 255)  # rescale from [0, 1] to [0, 255]
+    transformer.set_channel_swap('data', (2, 1, 0))  # swap channels from RGB to BGR
+
+    net.blobs['data'].reshape(1,  # batch size
+                              3,  # 3-channel (BGR) images
+                              713, 713)  # image size is 227x227
+    for i in range(5653, 5654): #5464
+        filename = 'file' + str(i) + '.png'
+        image = caffe.io.load_image('/home/cv/Sumukh/Living_Indicator/img/' + filename)
+        transformed_image = transformer.preprocess('data', image)
+        net.blobs['data'].data[...] = transformed_image
+        output = net.forward()
+
+        img1 = net.blobs['conv6_interp'].data[0, 0]  # road
+        img2 = net.blobs['conv6_interp'].data[0, 2]  # house
+        img3 = net.blobs['conv6_interp'].data[0, 8]  # trees
+        img4 = net.blobs['conv6_interp'].data[0, 9]  # terrain
+        img5 = net.blobs['conv6_interp'].data[0, 13]  # Car
+
+        ret, th1 = cv2.threshold(img1, 6, 255, cv2.THRESH_BINARY)
+        ret, th2 = cv2.threshold(img2, 9, 255, cv2.THRESH_BINARY)
+        ret, th3 = cv2.threshold(img3, 6, 255, cv2.THRESH_BINARY)
+        ret, th4 = cv2.threshold(img4, 5, 255, cv2.THRESH_BINARY)
+        ret, th5 = cv2.threshold(img5, 5, 255, cv2.THRESH_BINARY)
+
+        plt.imshow(th1)
+        plt.savefig('/home/cv/Sumukh/Results/Road/test_road' + str(i) + '.png')
+        plt.imshow(th2)
+        plt.savefig('/home/cv/Sumukh/Results/House/test_house' + str(i) + '.png')
+        plt.imshow(th3)
+        plt.savefig('/home/cv/Sumukh/Results/Trees/test_tree' + str(i) + '.png')
+        plt.imshow(th4)
+        plt.savefig('/home/cv/Sumukh/Results/Terrain/test_terrain' + str(i) + '.png')
+        plt.imshow(th5)
+        plt.savefig('/home/cv/Sumukh/Results/Car/test_car' + str(i) + '.png')
 
 # def get_Living_Index(res):
 #     original_features = []

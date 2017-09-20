@@ -9,7 +9,12 @@ from sklearn.decomposition import PCA
 from sklearn import tree
 from sklearn import svm
 from sklearn.neural_network import MLPClassifier
+from sklearn.neural_network import MLPRegressor
 from sklearn.naive_bayes import GaussianNB
+from sklearn import linear_model
+from sklearn.linear_model import BayesianRidge
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, r2_score
 import numpy as np
 from matplotlib import pyplot as plt
 import cv2
@@ -149,12 +154,12 @@ def get_imgrad(filenames):
             laplace = cv2.Laplacian(chan, cv2.CV_32F)
             #sobelx = cv2.Sobel(chan, cv2.CV_32F, 1, 0, ksize=5)
             #sobely = cv2.Sobel(chan, cv2.CV_32F, 0, 1, ksize=5)
-            hist = cv2.calcHist([laplace], [0], None, [32], [0, 256]) #, sobely, laplace,
+            hist = cv2.calcHist([laplace], [0], None, [16], [0, 256]) #, sobely, laplace,
             hist = cv2.normalize(np.array(hist), dst=cv2.NORM_MINMAX)
             gradhist.extend(hist)
         #features.append(np.array(gradhist).flatten())
     feature = np.array(np.array(gradhist).flatten())
-    feature = feature.reshape((len(filenames), 96))
+    feature = feature.reshape((len(filenames), 48))
     return feature
 
 
@@ -184,7 +189,9 @@ def get_segmented_color_hist(img, mask):
         colhist = np.append(colhist, hist)
     return colhist
 
-
+##################################################################################
+# Classification Approach
+#---------------------------------------------------------------------------------
 
 def gradient_descent(alpha, trainx, trainy, testx, testy, numiter, epsilon):
     theta = np.zeros(len(trainx[0]))
@@ -247,8 +254,54 @@ def naive_bayes(trainx, trainy, testx, testy):
     accuracy = np.true_divide(len(res[np.round(res) == testy]), len(testy)) * 100
     return accuracy
 
+#-------------------------------------------------------------------------------------
 
-# with open('LA.csv', 'rU') as infile:
+
+
+######################################################################################
+# Regression Approach
+#-------------------------------------------------------------------------------------
+
+def lr_regression(X_train, y_train, X_test):
+    regr = linear_model.LinearRegression()
+    regr.fit(X_train, y_train)
+    y_pred = regr.predict(X_test)
+
+    # Calculate the R2, Std-Error in the driver code
+    return y_pred
+
+
+
+def bayesian_regression(X_train, y_train, X_test):
+    clf = linear_model.BayesianRidge()
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+
+    # Calculate the R2, Std-Error in the driver code
+    return y_pred
+
+
+def rf_regressor(X_train, y_train, X_test):
+    regr = RandomForestRegressor(n_estimators=500, criterion='mse', max_features=20, max_depth=5, min_samples_split=200,
+                                 bootstrap=True, oob_score=True, random_state=0)
+    regr.fit(X_train, y_train)
+    y_pred = regr.predict(X_test)
+    return y_pred
+
+
+
+def nn_regressor(X_train, y_train, X_test):
+    clf = MLPRegressor(hidden_layer_sizes=(70, 20), activation='relu', solver='sgd', alpha=0.000001,
+                       learning_rate='adaptive', max_iter=500, random_state=0, tol=1e-5)
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
+    return y_pred
+
+
+#########################################################################################
+# Download Zillow and Google Street view Data (Calls for the Get_Zillow_data() function
+#----------------------------------------------------------------------------------------
+#with open('LA.csv', 'rU') as infile:
 with open('portland_metro.csv', 'rU') as infile:
     reader = csv.DictReader(infile)
     data = {}
@@ -284,35 +337,46 @@ for i in rand_idx[12000:14000]: # last run until 14000
 
 res = get_zillow_data(address, zip) # 721, 1487, 2282, 3323, 4165, 4960, 5656
 
+###################################################################################################
 
-# USE THIS FOR ZILLOW RESULTS
-#
-# import pickle
-#
-# f = open('result.pickle', 'wb')
-# pickle.dump(res, f, 2)
-# f.close()
-#
-# f = open('result.pickle1234', 'rb')
-# res = pickle.load(f)
-# f.close()
+#-------------------------------------------------------------------------------------------------
+# USE THIS FOR ZILLOW RESULTS (Obsolete)
+#-------------------------------------------------------------------------------------------------
 
-res = pd.read_csv('resultset_12000')
+'''import pickle
+
+f = open('result.pickle', 'wb')
+pickle.dump(res, f, 2)
+f.close()
+f = open('result.pickle1234', 'rb')
+res = pickle.load(f)
+f.close()'''
+
+'''res = pd.read_csv('resultset_12000')
 living_index = get_Living_Index(res)
 
 filenames = []
 for i in range(0,len(res)):
     name = "img/file"+str(i)+".png"
-    filenames.append(name)
+    filenames.append(name) '''
+#------------------------------------------------------------------------------------------------
 
 
+###############################################################################################################
+# Accuracy, R2, Std-Err for Classification and regression approaches - Secondary Features, followed by Primary
+###############################################################################################################
+
+    ##***********##
+    ## Secondary ##
+    ##***********##
 
 seg_feat_house = np.loadtxt("/home/student/Sumukh/Living_Indicator/feat_house.csv", delimiter = ',')
 seg_feat_road = np.loadtxt("/home/student/Sumukh/Living_Indicator/feat_road.csv", delimiter = ',')
 seg_feat_tree = np.loadtxt("/home/student/Sumukh/Living_Indicator/feat_tree.csv", delimiter = ',')
 seg_feat_terrain = np.loadtxt("/home/student/Sumukh/Living_Indicator/feat_terrain.csv", delimiter = ',')
 
-feature = get_imgrad(filenames)
+res = pd.read_csv('resultset_12000')
+living_index = get_Living_Index(res)
 
 #y = np.genfromtxt('pcascores.csv',delimiter = ',')
 y = living_index
@@ -323,6 +387,94 @@ trainx = x[0:4523]
 testx = x[4523:]
 trainy = y[0:4523]
 testy = y[4523:]
+
+
+    ##***********##
+    ##  Primary  ##
+    ##***********##
+
+filenames = []
+for i in range(0,len(res)):
+    name = "img/file"+str(i)+".png"
+    filenames.append(name)
+
+res = pd.read_csv('resultset_12000')
+living_index = get_Living_Index(res)
+
+colhist_feature = get_colhist(filenames)
+grad_feature = get_imgrad(filenames)
+
+#y = np.genfromtxt('pcascores.csv',delimiter = ',')
+y = living_index
+x = feature
+# x = np.column_stack((np.ones(len(feature)), feature))
+
+trainx = x[0:4523]
+testx = x[4523:]
+trainy = y[0:4523]
+testy = y[4523:]
+
+
+        #####################
+        # Linear Regression #
+        #####################
+
+lin_y_pred = lr_regression(trainx, trainy, testx)
+lin_MSE = mean_squared_error(testy, lin_y_pred)
+lin_r2_score = r2_score(testy, lin_y_pred)
+lin_sq_err = np.array([x**2 for x in lin_y_pred - testy])
+lin_min_err = min(lin_sq_err)
+lin_max_err = max(lin_sq_err)
+lin_median_err = np.median(lin_sq_err)
+
+
+        ##############################
+        # Bayseinan Ridge egression ##
+        ##############################
+
+bae_y_pred = bayesian_regression(trainx, trainy, testx)
+bae_y_pred = bae_y_pred.reshape(1131,1)
+bae_MSE = mean_squared_error(testy, bae_y_pred)
+bae_r2_score = r2_score(testy, bae_y_pred)
+bae_sq_err = np.array([x**2 for x in (bae_y_pred - testy)])
+bae_min_err = min(bae_sq_err)
+bae_max_err = max(bae_sq_err)
+bae_median_err = np.median(bae_sq_err)
+
+
+
+        ###########################
+        # Random Forest Regressor #
+        ###########################
+
+rf_y_pred = rf_regressor(trainx, trainy, testx)
+rf_y_pred = rf_y_pred.reshape(1131,1)
+rf_MSE = mean_squared_error(testy, rf_y_pred)
+rf_r2_score = r2_score(testy, rf_y_pred)
+rf_sq_err = np.array([x**2 for x in (rf_y_pred - testy)])
+rf_min_err = min(rf_sq_err)
+rf_max_err = max(rf_sq_err)
+rf_median_err = np.median(rf_sq_err)
+
+
+
+        ##############
+        # Neural Net #
+        ##############
+
+nn_y_pred = nn_regressor(trainx, trainy, testx)
+nn_y_pred = nn_y_pred.reshape(1131,1)
+nn_MSE = mean_squared_error(testy, nn_y_pred)
+nn_r2_score = r2_score(testy, nn_y_pred)
+nn_sq_err = np.array([x**2 for x in (nn_y_pred - testy)])
+nn_min_err = min(nn_sq_err)
+nn_max_err = max(nn_sq_err)
+nn_median_err = np.median(nn_sq_err)
+
+
+#----------------------------------------------------------------------------------------
+# Function Calls for Classification approach
+#-----------------------------------------------------------------------------------------
 
 gd_accuracy = gradient_descent(0.001, trainx, trainy, testx, testy, 1000000, 0.001)
 
@@ -335,6 +487,8 @@ lin_svc_accuracy = Linear_SVC(trainx, trainy, testx, testy)
 nn_accuarcy = neural_net(trainx, trainy, testx, testy)
 
 naive_bayes_accuarcy = naive_bayes(trainx, trainy, testx, testy)
+
+#-------------------------------------------------------------------------------------------
 
 # res = np.dot(testx, gd_res['theta'])
 # np.true_divide(len(res[np.round(res) == testy]), len(testy)) * 100
@@ -360,6 +514,11 @@ naive_bayes_accuarcy = naive_bayes(trainx, trainy, testx, testy)
 #     plt.xlim([0, 256])
 # features.extend(np.array(colhist).flatten())
 
+
+
+###############################################################################################
+# Code to Save Zillow Data Into CSV Files
+###############################################################################################
 
 import pandas as pd
 
@@ -413,10 +572,13 @@ for res in temp_res:
                                 'zestimate_percentile':res.zestimate_percentile}, index = [j])
     dfresults = dfresults.append(dfresultappend)
 
+#-----------------------------------------------------------------------------------------------------------
 
-    #############################################################################################################
-    # Segmented image analysis
-    #############################################################################################################
+
+
+#############################################################################################################
+# Segmented image analysis
+#############################################################################################################
 
 seg_files_house = ["/home/student/Sumukh/Results/House/test_house"+ (str(i)) + ".png" for i in range(0,5654)]
 seg_files_road = ["/home/student/Sumukh/Results/Road/test_road"+ (str(i)) + ".png" for i in range(0,5654)]
@@ -481,75 +643,75 @@ print(seg_feat_house.shape)
 
 
 
-    ##############################################################################################################
-    #    code for saving segmented images (car, house, road, tree, terrain etc)
-    ##############################################################################################################
+##############################################################################################################
+#    code for saving segmented images (car, house, road, tree, terrain etc)
+##############################################################################################################
 
-    import numpy as np
-    import cv2
-    import sys
+import numpy as np
+import cv2
+import sys
 
-    caffe_root = '/home/student/Documents/PSPNet'  # this file should be run from {caffe_root}/examples (otherwise change this line)
-    sys.path.insert(0, caffe_root + 'python/')
+caffe_root = '/home/student/Documents/PSPNet'  # this file should be run from {caffe_root}/examples (otherwise change this line)
+sys.path.insert(0, caffe_root + 'python/')
 
-    import caffe
+import caffe
 
 
-    import matplotlib
-    import matplotlib.pyplot as plt
-    matplotlib.use('Agg')
+import matplotlib
+import matplotlib.pyplot as plt
+matplotlib.use('Agg')
 
-    # caffe.set_mode_cpu()
-    model_def = '/home/cv/Sumukh/PSPNet/evaluation/prototxt/pspnet101_cityscapes_713.prototxt'
-    model_weights = '/home/cv/Sumukh/PSPNet/caffemodel/pspnet101_cityscapes.caffemodel'
+# caffe.set_mode_cpu()
+model_def = '/home/cv/Sumukh/PSPNet/evaluation/prototxt/pspnet101_cityscapes_713.prototxt'
+model_weights = '/home/cv/Sumukh/PSPNet/caffemodel/pspnet101_cityscapes.caffemodel'
 
-    net = caffe.Net(model_def,  # defines the structure of the model
-                    model_weights,  # contains the trained weights
-                    caffe.TEST)  # use test mode (e.g., don't perform dropout)
+net = caffe.Net(model_def,  # defines the structure of the model
+                model_weights,  # contains the trained weights
+                caffe.TEST)  # use test mode (e.g., don't perform dropout)
 
-    mu = np.load('/home/cv/Sumukh/PSPNet/python/caffe/imagenet/ilsvrc_2012_mean.npy')
-    # mu = np.load(caffe_root + 'python/caffe/imagenet/ilsvrc_2012_mean.npy')
-    mu = mu.mean(1).mean(1)  # average over pixels to obtain the mean (BGR) pixel values
+mu = np.load('/home/cv/Sumukh/PSPNet/python/caffe/imagenet/ilsvrc_2012_mean.npy')
+# mu = np.load(caffe_root + 'python/caffe/imagenet/ilsvrc_2012_mean.npy')
+mu = mu.mean(1).mean(1)  # average over pixels to obtain the mean (BGR) pixel values
 
-    transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
+transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
 
-    transformer.set_transpose('data', (2, 0, 1))  # move image channels to outermost dimension
-    transformer.set_mean('data', mu)  # subtract the dataset-mean value in each channel
-    transformer.set_raw_scale('data', 255)  # rescale from [0, 1] to [0, 255]
-    transformer.set_channel_swap('data', (2, 1, 0))  # swap channels from RGB to BGR
+transformer.set_transpose('data', (2, 0, 1))  # move image channels to outermost dimension
+transformer.set_mean('data', mu)  # subtract the dataset-mean value in each channel
+transformer.set_raw_scale('data', 255)  # rescale from [0, 1] to [0, 255]
+transformer.set_channel_swap('data', (2, 1, 0))  # swap channels from RGB to BGR
 
-    net.blobs['data'].reshape(1,  # batch size
-                              3,  # 3-channel (BGR) images
-                              713, 713)  # image size is 227x227
-    for i in range(5653, 5654): #5464
-        filename = 'file' + str(i) + '.png'
-        image = caffe.io.load_image('/home/cv/Sumukh/Living_Indicator/img/' + filename)
-        transformed_image = transformer.preprocess('data', image)
-        net.blobs['data'].data[...] = transformed_image
-        output = net.forward()
+net.blobs['data'].reshape(1,  # batch size
+                          3,  # 3-channel (BGR) images
+                          713, 713)  # image size is 227x227
+for i in range(5653, 5654): #5464
+    filename = 'file' + str(i) + '.png'
+    image = caffe.io.load_image('/home/cv/Sumukh/Living_Indicator/img/' + filename)
+    transformed_image = transformer.preprocess('data', image)
+    net.blobs['data'].data[...] = transformed_image
+    output = net.forward()
 
-        img1 = net.blobs['conv6_interp'].data[0, 0]  # road
-        img2 = net.blobs['conv6_interp'].data[0, 2]  # house
-        img3 = net.blobs['conv6_interp'].data[0, 8]  # trees
-        img4 = net.blobs['conv6_interp'].data[0, 9]  # terrain
-        img5 = net.blobs['conv6_interp'].data[0, 13]  # Car
+    img1 = net.blobs['conv6_interp'].data[0, 0]  # road
+    img2 = net.blobs['conv6_interp'].data[0, 2]  # house
+    img3 = net.blobs['conv6_interp'].data[0, 8]  # trees
+    img4 = net.blobs['conv6_interp'].data[0, 9]  # terrain
+    img5 = net.blobs['conv6_interp'].data[0, 13]  # Car
 
-        ret, th1 = cv2.threshold(img1, 6, 255, cv2.THRESH_BINARY)
-        ret, th2 = cv2.threshold(img2, 9, 255, cv2.THRESH_BINARY)
-        ret, th3 = cv2.threshold(img3, 6, 255, cv2.THRESH_BINARY)
-        ret, th4 = cv2.threshold(img4, 5, 255, cv2.THRESH_BINARY)
-        ret, th5 = cv2.threshold(img5, 5, 255, cv2.THRESH_BINARY)
+    ret, th1 = cv2.threshold(img1, 6, 255, cv2.THRESH_BINARY)
+    ret, th2 = cv2.threshold(img2, 9, 255, cv2.THRESH_BINARY)
+    ret, th3 = cv2.threshold(img3, 6, 255, cv2.THRESH_BINARY)
+    ret, th4 = cv2.threshold(img4, 5, 255, cv2.THRESH_BINARY)
+    ret, th5 = cv2.threshold(img5, 5, 255, cv2.THRESH_BINARY)
 
-        plt.imshow(th1)
-        plt.savefig('/home/cv/Sumukh/Results/Road/test_road' + str(i) + '.png')
-        plt.imshow(th2)
-        plt.savefig('/home/cv/Sumukh/Results/House/test_house' + str(i) + '.png')
-        plt.imshow(th3)
-        plt.savefig('/home/cv/Sumukh/Results/Trees/test_tree' + str(i) + '.png')
-        plt.imshow(th4)
-        plt.savefig('/home/cv/Sumukh/Results/Terrain/test_terrain' + str(i) + '.png')
-        plt.imshow(th5)
-        plt.savefig('/home/cv/Sumukh/Results/Car/test_car' + str(i) + '.png')
+    plt.imshow(th1)
+    plt.savefig('/home/cv/Sumukh/Results/Road/test_road' + str(i) + '.png')
+    plt.imshow(th2)
+    plt.savefig('/home/cv/Sumukh/Results/House/test_house' + str(i) + '.png')
+    plt.imshow(th3)
+    plt.savefig('/home/cv/Sumukh/Results/Trees/test_tree' + str(i) + '.png')
+    plt.imshow(th4)
+    plt.savefig('/home/cv/Sumukh/Results/Terrain/test_terrain' + str(i) + '.png')
+    plt.imshow(th5)
+    plt.savefig('/home/cv/Sumukh/Results/Car/test_car' + str(i) + '.png')
 
 # def get_Living_Index(res):
 #     original_features = []

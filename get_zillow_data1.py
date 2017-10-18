@@ -126,6 +126,9 @@ def get_Living_Index(res):
 
     return finalscore
 
+
+
+
 def get_colhist(filenames):
     features = []
     colhist = []
@@ -163,6 +166,46 @@ def get_imgrad(filenames):
     return feature
 
 
+def get_localized_colhist(filenames):
+    win_r = 80
+    win_c = 80
+    feat = np.empty(0)
+
+    for i in range(0, len(filenames)):
+        image = cv2.imread(filenames[i])
+
+        for r in range(0, image.shape[0], win_r):
+            for c in range(0, image.shape[1], win_c):
+                window = image[r: r + win_r, c: c + win_c]
+                window = cv2.cvtColor(window, cv2.COLOR_BGR2GRAY)
+                hist = cv2.calcHist(window, [0], None, [8], [0, 256])
+                hist = cv2.normalize(np.array(hist), dst=cv2.NORM_MINMAX)
+                feat = np.append(feat, hist)
+
+    feature = feat.reshape((len(filenames)*64 , 8))
+    return feature
+
+
+
+def get_localized_imgrad(filenames):
+    win_r = 80
+    win_c = 80
+    feat = np.empty(0)
+
+    for i in range(0, len(filenames)):
+        image = cv2.imread(filenames[i])
+
+        for r in range(0, image.shape[0], win_r):
+            for c in range(0, image.shape[1], win_c):
+                window = image[r: r + win_r, c: c + win_c]
+                window = cv2.cvtColor(window, cv2.COLOR_BGR2GRAY)
+                laplace = cv2.Laplacian(window, cv2.CV_32F)
+                hist = cv2.calcHist(laplace, [0], None, [8], [0, 256])
+                hist = cv2.normalize(np.array(hist), dst=cv2.NORM_MINMAX)
+                feat = np.append(feat, hist)
+
+    feature = feat.reshape((len(filenames)*64 , 8))
+    return feature
 
 '''def get_segmented_color_hist(img):
     hist_color_car = np.empty(0)
@@ -289,10 +332,9 @@ def rf_regressor(X_train, y_train, X_test):
     return y_pred
 
 
-
 def nn_regressor(X_train, y_train, X_test):
     clf = MLPRegressor(hidden_layer_sizes=(70, 20), activation='relu', solver='sgd', alpha=0.000001,
-                       learning_rate='adaptive', max_iter=500, random_state=0, tol=1e-5)
+                       learning_rate='adaptive', max_iter=500, random_state=0, tol=1e-5) # use (100, 50) for Sampling col_hist
     clf.fit(X_train, y_train)
     y_pred = clf.predict(X_test)
     return y_pred
@@ -383,10 +425,22 @@ y = living_index
 x = feature
 # x = np.column_stack((np.ones(len(feature)), feature))
 
+# fround truth for augmented images
+new_y = np.empty(0)
+for i in y:
+    new_y = np.append(new_y, np.repeat(i, 64))
+
+# use for normal image features
 trainx = x[0:4523]
 testx = x[4523:]
 trainy = y[0:4523]
 testy = y[4523:]
+
+# use for normal augmented features of 64 samples per image
+trainx = x[0:289472]
+testx = x[289472:]
+trainy = new_y[0:289472]
+testy = new_y[289472:]
 
 
     ##***********##
@@ -712,6 +766,274 @@ for i in range(5653, 5654): #5464
     plt.savefig('/home/cv/Sumukh/Results/Terrain/test_terrain' + str(i) + '.png')
     plt.imshow(th5)
     plt.savefig('/home/cv/Sumukh/Results/Car/test_car' + str(i) + '.png')
+
+
+
+
+
+
+###########################################################################################
+# Code for Using CNN fully connected layed as the feature
+#------------------------------------------------------------------------------------------
+
+import numpy as np
+# np.set_printoptions(threshold='nan')
+import cv2
+import matplotlib.pyplot as plt
+# display plots in this notebook
+# %matplotlib inline
+import sys
+caffe_root = '/home/student/Documents/PSPNet/'  # this file should be run from {caffe_root}/examples (otherwise change this line)
+sys.path.insert(0, caffe_root + 'python')
+
+import caffe
+caffe.set_mode_cpu()
+
+filenames = []
+for i in range(0,len(res)):
+    name = "/home/student/Documents/Living_Indicator/img/file"+str(i)+".png"
+    filenames.append(name)
+
+model_def = '/home/student/Documents/caffe/models/bvlc_alexnet/deploy.prototxt'
+model_weights = '/home/student/Documents/caffe/models/bvlc_alexnet/bvlc_alexnet.caffemodel'
+
+net = caffe.Net(model_def,  # defines the structure of the model
+                model_weights,  # contains the trained weights
+                caffe.TEST)
+
+mu = np.load('/home/student/Documents/caffe/python/caffe/imagenet/ilsvrc_2012_mean.npy')
+mu = mu.mean(1).mean(1)  # average over pixels to obtain the mean (BGR) pixel values
+transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
+
+transformer.set_transpose('data', (2, 0, 1))  # move image channels to outermost dimension
+transformer.set_mean('data', mu)  # subtract the dataset-mean value in each channel
+transformer.set_raw_scale('data', 255)  # rescale from [0, 1] to [0, 255]
+transformer.set_channel_swap('data', (2, 1, 0))  # swap channels from RGB to BGR
+
+count = 0
+feat = np.empty(0)
+
+for i in range(0, len(filenames)):
+    image = caffe.io.load_image(filenames[i])
+    transformed_image = transformer.preprocess('data', image)
+
+    net.blobs['data'].data[...] = transformed_image
+    output = net.forward()
+
+    temp = net.blobs['fc7'].data[:, :]
+
+    if (count == 0):
+        feat = temp
+    else:
+        feat = np.vstack((feat, temp))
+
+    count = count + 1
+    print(count)
+
+    del temp
+
+print(feat.shape)
+
+
+
+#################################################################################
+# Code for CNN features for augmented images (sampling technique)
+#--------------------------------------------------------------------------------
+
+import numpy as np
+import cv2
+
+import sys
+caffe_root = '/home/student/Documents/PSPNet/'  # this file should be run from {caffe_root}/examples (otherwise change this line)
+sys.path.insert(0, caffe_root + 'python')
+
+import caffe
+caffe.set_mode_cpu()
+
+filenames = []
+for i in range(0,len(res)):
+    name = "/home/student/Documents/Living_Indicator/img/file"+str(i)+".png"
+    filenames.append(name)
+
+model_def = '/home/student/Documents/caffe/models/bvlc_alexnet/deploy.prototxt'
+model_weights = '/home/student/Documents/caffe/models/bvlc_alexnet/bvlc_alexnet.caffemodel'
+
+net = caffe.Net(model_def,  # defines the structure of the model
+                model_weights,  # contains the trained weights
+                caffe.TEST)
+
+mu = np.load('/home/student/Documents/caffe/python/caffe/imagenet/ilsvrc_2012_mean.npy')
+mu = mu.mean(1).mean(1)  # average over pixels to obtain the mean (BGR) pixel values
+transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
+
+transformer.set_transpose('data', (2, 0, 1))  # move image channels to outermost dimension
+transformer.set_mean('data', mu)  # subtract the dataset-mean value in each channel
+transformer.set_raw_scale('data', 255)  # rescale from [0, 1] to [0, 255]
+transformer.set_channel_swap('data', (2, 1, 0))  # swap channels from RGB to BGR
+
+win_r = 80
+win_c = 80
+
+count = 0
+feat = np.empty(0)
+
+for i in range(0, len(filenames)):
+    image = cv2.imread(filenames[i])
+
+    for r in range(0, image.shape[0], win_r):
+        for c in range(0, image.shape[1], win_c):
+
+            window = image[r: r + win_r, c: c + win_c]
+            # window = cv2.cvtColor(window, cv2.COLOR_BGR2GRAY)
+
+            transformed_image = transformer.preprocess('data', window)
+            net.blobs['data'].data[...] = transformed_image
+            output = net.forward()
+
+            temp = net.blobs['fc7'].data[:, :]
+
+            if (count == 0):
+                feat = temp
+                count = count + 1
+            else:
+                feat = np.vstack((feat, temp))
+                count = count + 1
+                print(count)
+
+                del temp
+
+print(feat.shape)
+
+
+
+########################################################################################################
+# Code For bounding box based CNN features
+#-------------------------------------------------------------------------------------------------------
+
+import numpy as np
+import cv2
+
+import sys
+caffe_root = '/home/student/Documents/PSPNet/'  # this file should be run from {caffe_root}/examples (otherwise change this line)
+sys.path.insert(0, caffe_root + 'python')
+
+import caffe
+caffe.set_mode_cpu()
+
+count = 0
+feat = np.empty(0)
+
+
+pts2 = np.float32([[0, 0], [0, 640], [640, 0], [640, 640]])
+pts1 = np.float32([[144, 60], [144, 425], [513, 60], [513, 425]])
+
+M = cv2.getPerspectiveTransform(pts1, pts2)
+
+model_def = '/home/student/Documents/caffe/models/bvlc_alexnet/deploy.prototxt'
+model_weights = '/home/student/Documents/caffe/models/bvlc_alexnet/bvlc_alexnet.caffemodel'
+
+net = caffe.Net(model_def,  # defines the structure of the model
+                model_weights,  # contains the trained weights
+                caffe.TEST)
+
+mu = np.load('/home/student/Documents/caffe/python/caffe/imagenet/ilsvrc_2012_mean.npy')
+mu = mu.mean(1).mean(1)  # average over pixels to obtain the mean (BGR) pixel values
+transformer = caffe.io.Transformer({'data': net.blobs['data'].data.shape})
+
+transformer.set_transpose('data', (2, 0, 1))  # move image channels to outermost dimension
+transformer.set_mean('data', mu)  # subtract the dataset-mean value in each channel
+transformer.set_raw_scale('data', 255)  # rescale from [0, 1] to [0, 255]
+transformer.set_channel_swap('data', (2, 1, 0))  # swap channels from RGB to BGR
+
+
+# for loop here
+for i in range(0, 5654):
+    house_mask = cv2.imread('/home/student/Sumukh/Results/House/test_house'+ str(i) + '.png')
+    road_mask = cv2.imread('/home/student/Sumukh/Results/Road/test_road'+ str(i) + '.png')
+    tree_mask = cv2.imread('/home/student/Sumukh/Results/Trees/test_tree'+ str(i) + '.png')
+    terrain_mask = cv2.imread('/home/student/Sumukh/Results/Terrain/test_terrain'+ str(i) + '.png')
+
+    image = cv2.imread('/home/student/Sumukh/Living_Indicator/img/file' + str(i)+ '.png')
+
+    road_mask = cv2.warpPerspective(road_mask, M, (640, 640))
+    house_mask = cv2.warpPerspective(house_mask, M, (640, 640))
+    tree_mask = cv2.warpPerspective(tree_mask, M, (640, 640))
+    terrain_mask = cv2.warpPerspective(terrain_mask, M, (640, 640))
+
+    road_mask = cv2.cvtColor(road_mask, cv2.COLOR_BGR2GRAY)
+    house_mask = cv2.cvtColor(house_mask, cv2.COLOR_BGR2GRAY)
+    tree_mask = cv2.cvtColor(tree_mask, cv2.COLOR_BGR2GRAY)
+    terrain_mask = cv2.cvtColor(terrain_mask, cv2.COLOR_BGR2GRAY)
+
+    _, road_mask = cv2.threshold(road_mask, 30, 255, cv2.THRESH_BINARY)
+    _, house_mask = cv2.threshold(house_mask, 30, 255, cv2.THRESH_BINARY)
+    _, tree_mask = cv2.threshold(tree_mask, 30, 255, cv2.THRESH_BINARY)
+    _, terrain_mask = cv2.threshold(terrain_mask, 30, 255, cv2.THRESH_BINARY)
+
+    road_x,road_y,road_w,road_h = cv2.boundingRect(road_mask)
+    house_x,house_y,house_w,house_h = cv2.boundingRect(house_mask)
+    tree_x,tree_y,tree_w,tree_h = cv2.boundingRect(tree_mask)
+    terrain_x,terrain_y,terrain_w,terrain_h = cv2.boundingRect(terrain_mask)
+
+    road_pts = np.float32([[road_x, road_y], [road_x, road_y+road_h], [road_x+road_w, road_y], [road_x+road_w, road_y+road_h]])
+    tree_pts = np.float32([[tree_x, tree_y], [tree_x, tree_y+tree_h], [tree_x+tree_w, tree_y], [tree_x+tree_w, tree_y+tree_h]])
+    house_pts = np.float32([[house_x, house_y], [house_x, house_y+house_h], [house_x+house_w, house_y], [house_x+house_w, house_y+house_h]])
+    terrain_pts = np.float32([[terrain_x, terrain_y], [terrain_x, terrain_y+terrain_h], [terrain_x+terrain_w, terrain_y], [terrain_x+terrain_w, terrain_y+terrain_h]])
+
+    road_M = cv2.getPerspectiveTransform(road_pts, pts2)
+    tree_M = cv2.getPerspectiveTransform(tree_pts, pts2)
+    house_M = cv2.getPerspectiveTransform(house_pts, pts2)
+    terrain_M = cv2.getPerspectiveTransform(terrain_pts, pts2)
+
+
+    road = cv2.warpPerspective(image, road_M, (640, 640))
+    tree = cv2.warpPerspective(image, tree_M, (640, 640))
+    house = cv2.warpPerspective(image, house_M, (640, 640))
+    terrain = cv2.warpPerspective(image, terrain_M, (640, 640))
+
+
+    transformed_image = transformer.preprocess('data', road)
+    net.blobs['data'].data[...] = transformed_image
+    output = net.forward()
+    temp = net.blobs['fc7'].data[:, :]
+
+    if (count == 0):
+        feat = temp
+        count = count + 1
+    else:
+        feat = np.vstack((feat, temp))
+        count = count + 1
+        print(count)
+
+
+    transformed_image = transformer.preprocess('data', tree)
+    net.blobs['data'].data[...] = transformed_image
+    output = net.forward()
+    temp = net.blobs['fc7'].data[:, :]
+
+    feat = np.vstack((feat, temp))
+    count = count + 1
+    print(count)
+
+
+    transformed_image = transformer.preprocess('data', house)
+    net.blobs['data'].data[...] = transformed_image
+    output = net.forward()
+    temp = net.blobs['fc7'].data[:, :]
+
+    feat = np.vstack((feat, temp))
+    count = count + 1
+    print(count)
+
+
+    transformed_image = transformer.preprocess('data', terrain)
+    net.blobs['data'].data[...] = transformed_image
+    output = net.forward()
+    temp = net.blobs['fc7'].data[:, :]
+
+    feat = np.vstack((feat, temp))
+    count = count + 1
+    print(count)
 
 # def get_Living_Index(res):
 #     original_features = []

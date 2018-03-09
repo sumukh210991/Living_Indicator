@@ -126,9 +126,7 @@ def get_Living_Index(res):
 
     return finalscore
 
-
-
-
+'''
 def get_colhist(filenames):
     features = []
     colhist = []
@@ -143,9 +141,23 @@ def get_colhist(filenames):
         #features.append(np.array(colhist).flatten())
     features = np.array(np.array(colhist).flatten())
     features = features.reshape((len(filenames), 48))
+    return features '''
+
+def get_colhist(filenames):
+    features = []
+    colhist = []
+    for i in range(0, len(filenames)):
+        image = cv2.imread(filenames[i], 0)
+        image = cv2.resize(image, (150, 150), interpolation=cv2.INTER_CUBIC)
+        hist = cv2.calcHist(image, [0], None, [16], [0, 256])
+        hist = cv2.normalize(np.array(hist), dst=cv2.NORM_MINMAX)
+        colhist.extend(hist)
+        #features.append(np.array(colhist).flatten())
+    features = np.array(np.array(colhist).flatten())
+    features = features.reshape((len(filenames), 16))
     return features
 
-
+'''
 def get_imgrad(filenames):
     features = []
     gradhist = []
@@ -163,6 +175,26 @@ def get_imgrad(filenames):
         #features.append(np.array(gradhist).flatten())
     feature = np.array(np.array(gradhist).flatten())
     feature = feature.reshape((len(filenames), 48))
+    return feature
+'''
+
+def get_imgrad(filenames):
+    features = []
+    gradhist = []
+    for i in range(0, len(filenames)):
+        image = cv2.imread(filenames[i], 0)
+        #chans = cv2.split(image)
+        # gradhist = []
+
+        laplace = cv2.Laplacian(image, cv2.CV_32F)
+        #sobelx = cv2.Sobel(chan, cv2.CV_32F, 1, 0, ksize=5)
+        #sobely = cv2.Sobel(chan, cv2.CV_32F, 0, 1, ksize=5)
+        hist = cv2.calcHist([laplace], [0], None, [16], [0, 256]) #, sobely, laplace,
+        hist = cv2.normalize(np.array(hist), dst=cv2.NORM_MINMAX)
+        gradhist.extend(hist)
+        #features.append(np.array(gradhist).flatten())
+    feature = np.array(np.array(gradhist).flatten())
+    feature = feature.reshape((len(filenames), 16))
     return feature
 
 
@@ -184,7 +216,6 @@ def get_localized_colhist(filenames):
 
     feature = feat.reshape((len(filenames)*64 , 8))
     return feature
-
 
 
 def get_localized_imgrad(filenames):
@@ -736,7 +767,7 @@ transformer.set_channel_swap('data', (2, 1, 0))  # swap channels from RGB to BGR
 
 net.blobs['data'].reshape(1,  # batch size
                           3,  # 3-channel (BGR) images
-                          713, 713)  # image size is 227x227
+                          713, 713)  # image size is 713*713
 for i in range(5653, 5654): #5464
     filename = 'file' + str(i) + '.png'
     image = caffe.io.load_image('/home/cv/Sumukh/Living_Indicator/img/' + filename)
@@ -907,7 +938,7 @@ print(feat.shape)
 
 
 ########################################################################################################
-# Code For bounding box based CNN features
+# Code For bounding box based CNN features - whole image
 #-------------------------------------------------------------------------------------------------------
 
 import numpy as np
@@ -922,7 +953,6 @@ caffe.set_mode_cpu()
 
 count = 0
 feat = np.empty(0)
-
 
 pts2 = np.float32([[0, 0], [0, 640], [640, 0], [640, 640]])
 pts1 = np.float32([[144, 60], [144, 425], [513, 60], [513, 425]])
@@ -944,7 +974,6 @@ transformer.set_transpose('data', (2, 0, 1))  # move image channels to outermost
 transformer.set_mean('data', mu)  # subtract the dataset-mean value in each channel
 transformer.set_raw_scale('data', 255)  # rescale from [0, 1] to [0, 255]
 transformer.set_channel_swap('data', (2, 1, 0))  # swap channels from RGB to BGR
-
 
 # for loop here
 for i in range(0, 5654):
@@ -985,12 +1014,28 @@ for i in range(0, 5654):
     house_M = cv2.getPerspectiveTransform(house_pts, pts2)
     terrain_M = cv2.getPerspectiveTransform(terrain_pts, pts2)
 
-
     road = cv2.warpPerspective(image, road_M, (640, 640))
     tree = cv2.warpPerspective(image, tree_M, (640, 640))
     house = cv2.warpPerspective(image, house_M, (640, 640))
     terrain = cv2.warpPerspective(image, terrain_M, (640, 640))
 
+'''# Code for saving the bounded box per each category
+
+    road_filename = "/home/student/Sumukh/augmented_images/bounding_box/road_bounding_box/bd_box_road_" + str(
+        i) + ".png"
+    tree_filename = "/home/student/Sumukh/augmented_images/bounding_box/tree_bounding_box/bd_box_tree_" + str(
+        i) + ".png"
+    house_filename = "/home/student/Sumukh/augmented_images/bounding_box/house_bounding_box/bd_box_house_" + str(
+        i) + ".png"
+    terrain_filename = "/home/student/Sumukh/augmented_images/bounding_box/terrain_bounding_box/bd_box_terrain_" + str(
+        i) + ".png"
+
+    cv2.imwrite(road_filename, road)
+    cv2.imwrite(tree_filename, tree)
+    cv2.imwrite(house_filename, house)
+    cv2.imwrite(terrain_filename, terrain)
+    
+    '''
 
     transformed_image = transformer.preprocess('data', road)
     net.blobs['data'].data[...] = transformed_image
@@ -1005,7 +1050,6 @@ for i in range(0, 5654):
         count = count + 1
         print(count)
 
-
     transformed_image = transformer.preprocess('data', tree)
     net.blobs['data'].data[...] = transformed_image
     output = net.forward()
@@ -1014,7 +1058,6 @@ for i in range(0, 5654):
     feat = np.vstack((feat, temp))
     count = count + 1
     print(count)
-
 
     transformed_image = transformer.preprocess('data', house)
     net.blobs['data'].data[...] = transformed_image
@@ -1025,7 +1068,6 @@ for i in range(0, 5654):
     count = count + 1
     print(count)
 
-
     transformed_image = transformer.preprocess('data', terrain)
     net.blobs['data'].data[...] = transformed_image
     output = net.forward()
@@ -1034,6 +1076,51 @@ for i in range(0, 5654):
     feat = np.vstack((feat, temp))
     count = count + 1
     print(count)
+
+###########################################################################################
+# Code for random augmented samples of all images
+#-----------------------------------------------------------------------------------------
+
+import random
+
+orig_files = ["/home/student/Sumukh/Living_Indicator/img/file" + str(i) + ".png" for i in range(0, 5654)]
+record = np.empty(0)
+count = 0
+for img_counter in range(5000, 5655):
+    img = cv2.imread(orig_files[img_counter], 0)
+
+    xpts = np.array([random.randint(100, 540) for p in range(0, 30)])
+    ypts = np.array([random.randint(100, 540) for p in range(0, 30)])
+
+    coords = np.vstack((xpts, ypts))
+    coords = np.transpose(coords)
+
+    subsetcount = 0
+    for coord in coords:
+        for _ in range(0, 3):
+            top = random.randint(50, 100)
+            bottom = random.randint(50, 100)
+            left = random.randint(50, 100)
+            right = random.randint(50, 100)
+            # temp = np.array([coord, np.array([top, right, bottom, left])])
+            temp = np.array([coord[0], coord[1], top, right, bottom, left])
+            if (count == 0):
+                record = temp
+                filename = "/home/student/Sumukh/augmented_images/raw/raw_aug_file_" + str(img_counter) + "_" + str(
+                    subsetcount) + ".png"
+                count = count + 1
+                subsetcount = subsetcount + 1
+            else:
+                record = np.vstack((record, temp))
+                filename = "/home/student/Sumukh/augmented_images/raw/raw_aug_file_" + str(img_counter) + "_" + str(
+                    subsetcount) + ".png"
+                count = count + 1
+                subsetcount = subsetcount + 1
+
+            cv2.imwrite(filename, img[(coord[0] - left): (coord[0] + right), (coord[1] - bottom): (coord[1] + top)])
+
+
+
 
 # def get_Living_Index(res):
 #     original_features = []
